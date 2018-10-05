@@ -1,0 +1,46 @@
+Description: Cross-account s3 bucket replication - destination account with replication bucket
+
+
+Parameters:
+
+  BucketFilesReplication: ## destination bucket
+    Type: String
+    Description: Replication bucket at destination AWS account
+    Default: some-bucket
+
+  AwsAccountIdSource: ## source AWS account ID
+    Type: String
+    Description: Source bucket owner account ID.
+    Default: some-bucket
+
+
+Resources:
+
+  bucketFilesReplication:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketFilesReplication
+      VersioningConfiguration:
+        Status: Enabled
+
+  policyBucketFilesReplication:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BucketFilesReplication
+      PolicyDocument:
+        Statement:
+        - Sid: Replication policy
+          Effect: Allow
+          Principal:
+            AWS: !Join ['',['arn:aws:iam::', !Ref AwsAccountIdSource, ':root']]
+          Action:
+            - 's3:ReplicateObject'
+            - 's3:ReplicateDelete'
+            - 's3:ReplicateTags'
+            - 's3:GetObjectVersionTagging'
+            - 's3:GetBucketVersioning'
+            - 's3:PutBucketVersioning'
+            - 's3:ObjectOwnerOverrideToBucketOwner'
+          Resource: ## destination bucket
+            - !Join ['',['arn:aws:s3:::', !Ref BucketFilesReplication      ]]
+            - !Join ['',['arn:aws:s3:::', !Ref BucketFilesReplication, '/*']]

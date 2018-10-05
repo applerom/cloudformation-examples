@@ -1,0 +1,85 @@
+Description: Cross-account s3 bucket replication - original account with source bucket
+
+
+Parameters:
+
+  BucketFiles: ## source bucket
+    Type: String
+    Description: Source bucket at original AWS account
+    Default: some-bucket
+
+  BucketFilesReplication: ## destination bucket
+    Type: String
+    Description: Replication bucket at destination AWS account
+    Default: some-bucket
+
+  AwsAccountIdDestination: ## destination AWS account ID
+    Type: String
+    Description: Destination bucket owner account ID.
+    Default: some-bucket
+
+##  StorageClass: ## By default, Amazon S3 uses the storage class of the source object to create object replica.
+##    Type: String
+##    Description: The storage class to use when replicating objects, such as standard or reduced redundancy.
+##    Default: STANDARD
+##    AllowedValues: [ STANDARD, STANDARD_IA, ONEZONE_IA, REDUCED_REDUNDANCY ]
+##    ## To transition objects to the GLACIER storage class, use lifecycle configuration.
+
+
+Resources:
+
+  roleReplication:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: s3.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      Policies: ## PolicyName must contain only alphanumeric characters and/or the following: +=,.@_-
+      - PolicyName: cross-account-replication
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+              - 's3:ListBucket'
+              - 's3:GetReplicationConfiguration'
+              - 's3:GetObjectVersionForReplication'
+              - 's3:GetObjectVersionAcl'
+            Resource: ## source bucket
+              - !Join ['',['arn:aws:s3:::', !Ref BucketFiles      ]]
+              - !Join ['',['arn:aws:s3:::', !Ref BucketFiles, '/*']]
+          - Effect: Allow
+            Action:
+              - 's3:ReplicateObject'
+              - 's3:ReplicateDelete'
+              - 's3:ReplicateTags'
+              - 's3:GetObjectVersionTagging'
+              - 's3:GetBucketVersioning'
+              - 's3:PutBucketVersioning'
+              - 's3:ObjectOwnerOverrideToBucketOwner'
+            Resource: ## destination bucket
+              - !Join ['',['arn:aws:s3:::', !Ref BucketFilesReplication      ]]
+              - !Join ['',['arn:aws:s3:::', !Ref BucketFilesReplication, '/*']]
+
+  bucketFiles:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketFiles
+      VersioningConfiguration:
+        Status: Enabled
+      ReplicationConfiguration:
+        Role: !GetAtt roleReplication.Arn
+        Rules: ## Destination bucket must exist, have versioning enabled and be in a different region than source bucket.
+          - Destination:
+              Bucket: !Join ['',['arn:aws:s3:::', !Ref BucketFilesReplication]]
+              AccessControlTranslation: ## Account is required for AccessControlTranslation
+                Owner: Destination
+              Account: !Ref AwsAccountIdDestination
+              ##StorageClass: !Ref StorageClass
+            Id: Rule1
+            Prefix: ''
+            Status: Enabled
