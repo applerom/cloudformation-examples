@@ -1,4 +1,4 @@
-Description: Cross-account s3 bucket replication - original account with source bucket
+Description: Cross-account cross-region s3 bucket replication - original account with source bucket
 
 
 Parameters:
