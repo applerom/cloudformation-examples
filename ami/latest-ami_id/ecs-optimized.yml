@@ -1,0 +1,57 @@
+
+##  EcsAmiId:
+##    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+##    Description: ECS-optimized latest AMI ID
+##    Default: /aws/service/ecs/optimized-ami/amazon-linux/recommended/image_id
+
+
+Mappings:
+  ## use only ecs-optimized AMI because of ECS!
+  ## https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
+  ## (.*)([ ]+)amzn(.*)optimized (.*) Launch instance
+  ##     \1:\n      AmiId: \4
+  AWSRegionToAMI:
+    ap-northeast-1:
+      AmiId: ami-08681de00a0aae54f
+    ap-northeast-2:
+      AmiId: ami-0d947b1901b27a37c
+    ap-south-1:
+      AmiId: ami-0590d0dd683026eab
+    ap-southeast-1:
+      AmiId: ami-0a3f70f0255af1d29
+    ap-southeast-2:
+      AmiId: ami-05b48eda7f92aadbe
+    ca-central-1:
+      AmiId: ami-00d1bdbd447b5933a
+    eu-central-1:
+      AmiId: ami-0bb804e8cd910a664
+    eu-west-1:
+      AmiId: ami-05b65c0f6a75c1c64
+    eu-west-2:
+      AmiId: ami-0209769f0c963e791
+    eu-west-3:
+      AmiId: ami-06b685336aa497c15
+    sa-east-1:
+      AmiId: ami-01bca91ecf4c1f494
+    us-east-1:
+      AmiId: ami-0b9a214f40c38d5eb
+    us-east-2:
+      AmiId: ami-09a64272e7fe706b6
+    us-west-1:
+      AmiId: ami-0e7dd5fe55b87a5fe
+    us-west-2:
+      AmiId: ami-00430184c7bb49914
+  ## ECS optimized >> Getting latest AMI ID:
+  ## for region in $(aws ec2 describe-regions --region us-east-1 --query 'Regions[].[RegionName]' --output text | sort); \
+  ## do printf "    ${region}:\n      AmiId: \
+  ## $(aws ssm get-parameters --names /aws/service/ecs/optimized-ami/amazon-linux/recommended/image_id \
+  ## --query 'Parameters[0].[Value]' --output text --region $region)\n" ; done
+
+
+Resources:
+
+  autoscalingLaunch:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ## ImageId: !Ref EcsAmiId
+      ImageId: !FindInMap [AWSRegionToAMI, !Ref 'AWS::Region', AmiId]

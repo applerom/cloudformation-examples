@@ -1,0 +1,134 @@
+Description: Cross-account (the same region) replication - source account
+
+Parameters:
+
+  BucketFiles:
+    Type: String
+    Description: Files bucket Name
+    Default: some-bucket-files
+
+  BucketFilesReplication:
+    Type: String
+    Description: Files replication bucket
+    Default: some-replication-bucket
+
+  AccountReplication:
+    Type: String
+    Description: AWS account replication
+    Default: some-account
+
+
+Resources:
+
+  topicReplication:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Join ['-',[ !Ref BucketFiles, 'replication' ]]
+
+  policyTopicReplication:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument: # allow s3 to write to this sns topic
+        Statement:
+        - Effect: Allow
+          Action: 'SNS:Publish'
+          Principal:
+            AWS: '*'
+          Resource: '*'
+          Condition:
+            ArnLike:
+              aws:SourceArn: !Join ['',[ 'arn:aws:s3:*:*:', !Ref BucketFiles ]]
+      Topics:
+        - !Ref topicReplication
+
+  queueDeadLetter:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: DeadLetter
+
+  roleLambdaReplication:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow # allow lambda to assume role
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: NotificationLoggingPolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action: # allow lambda to write logs
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+            - Effect:   Allow
+              Action:   'sqs:*' # allow lambda to write to queueDeadLetter
+              Resource: !GetAtt queueDeadLetter.Arn
+            - Effect:   Allow
+              Action:   's3:GetObject' # read from source bucket
+              Resource: !Join ['',['arn:aws:s3:::', !Ref BucketFiles, '/*']]
+            - Effect:   Allow
+              Action:   's3:PutObject' # write to destination bucket
+              Resource: !Join ['',['arn:aws:s3:::', !Ref BucketFilesReplication, '/*']]
+
+  lambdaReplication:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join ['-',[ !Ref BucketFiles, 'replication' ]]
+      Handler:      index.lambda_handler
+      Role:         !GetAtt roleLambdaReplication.Arn
+      Runtime:      python2.7
+      DeadLetterConfig:
+        TargetArn: !GetAtt queueDeadLetter.Arn
+      Environment:
+        Variables:
+          DESTINATION_BUCKET: !Ref BucketFilesReplication
+      Code:
+        ZipFile: |
+          import boto3
+          import ast
+          import os
+          import urllib
+          import json
+
+          print('Loading function')
+
+          def lambda_handler(event, context):
+            s3 = boto3.client('s3')             
+            sns_message = ast.literal_eval(event['Records'][0]['Sns']['Message'])
+            source_bucket = str(sns_message['Records'][0]['s3']['bucket']['name'])
+            destination_bucket = os.environ.get('DESTINATION_BUCKET')
+            key = str(urllib.unquote_plus(sns_message['Records'][0]['s3']['object']['key']).decode('utf8'))
+
+            print "Copying %s from bucket %s to bucket %s ..." % (key, source_bucket, destination_bucket)
+
+            copy_source = {'Bucket':source_bucket, 'Key':key}
+            s3.copy_object(Bucket=destination_bucket, Key=key, CopySource=copy_source)
+      MemorySize: 256 ## MB
+      Timeout:    60  ## seconds
+
+  permissionReplication: # give sns notification topic permission to invoke the replication lambda
+      Type: AWS::Lambda::Permission
+      Properties:
+        Action:       'lambda:InvokeFunction'
+        FunctionName: !GetAtt lambdaReplication.Arn
+        Principal:    sns.amazonaws.com
+        SourceArn:    !Join [':',['arn:aws:sns', !Ref 'AWS::Region', !Ref 'AWS::AccountId', !GetAtt topicReplication.TopicName]]
+
+  subscriptionReplication: # subscribe replication lambda to sns notification topic
+    DependsOn: permissionReplication # wait for permissions to be created
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt lambdaReplication.Arn
+      Protocol: lambda
+      TopicArn: !Join [':',['arn:aws:sns', !Ref 'AWS::Region', !Ref 'AWS::AccountId', !GetAtt topicReplication.TopicName]]
+
+
+Outputs:
+
+  lambdaReplication:
+    Value: !Ref lambdaReplication

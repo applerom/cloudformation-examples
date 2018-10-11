@@ -1,0 +1,53 @@
+
+##  AmiIdLatest:
+##    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+##    Description: Latest Amazon Linux 2 AMI ID
+##    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+
+Mappings:
+  ## Amazon Linux2 >> Getting latest AMI ID:
+  ## for region in $(aws ec2 describe-regions --region us-east-1 --query 'Regions[].[RegionName]' --output text | sort); \
+  ## do printf "    ${region}:\n      AmiId: \
+  ## $(aws ssm get-parameters --names /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2 \
+  ## --query 'Parameters[0].[Value]' --output text --region $region)\n" ; done
+  AWSRegionToAMI:
+    ap-northeast-1:
+      AmiId: ami-04d3eb2e1993f679b
+    ap-northeast-2:
+      AmiId: ami-01f7db8de071cd2fc
+    ap-south-1:
+      AmiId: ami-06f2f23b8b95143c4
+    ap-southeast-1:
+      AmiId: ami-0fca02518e0faeb84
+    ap-southeast-2:
+      AmiId: ami-02d039674ab9ba947
+    ca-central-1:
+      AmiId: ami-0bf6ee3cf1ee25853
+    eu-central-1:
+      AmiId: ami-030aae8cba933aede
+    eu-west-1:
+      AmiId: ami-0c21ae4a3bd190229
+    eu-west-2:
+      AmiId: ami-00ee3b59e07408c27
+    eu-west-3:
+      AmiId: ami-054266d2576775c8e
+    sa-east-1:
+      AmiId: ami-0e2e2a5f6c0977c50
+    us-east-1:
+      AmiId: ami-0922553b7b0369273
+    us-east-2:
+      AmiId: ami-0303c7b2e7066b60d
+    us-west-1:
+      AmiId: ami-04534c96466647bfb
+    us-west-2:
+      AmiId: ami-0d1000aff9a9bad89
+
+
+Resources:
+
+  autoscalingLaunch:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ## ImageId: !Ref AmiIdLatest
+      ImageId: !FindInMap [AWSRegionToAMI, !Ref 'AWS::Region', AmiId]
