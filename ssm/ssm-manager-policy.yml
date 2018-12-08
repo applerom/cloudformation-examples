@@ -1,4 +1,7 @@
-- PolicyName: amazon-ssm-manager
+##ManagedPolicyArns:
+##  - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM'
+
+- PolicyName: amazon-ssm-manager ## Secure replacement for AmazonEC2RoleforSSM
   PolicyDocument:
     Statement:
     - Effect: Allow
