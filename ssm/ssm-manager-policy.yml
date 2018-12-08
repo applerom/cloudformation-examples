@@ -1,0 +1,55 @@
+- PolicyName: amazon-ssm-manager
+  PolicyDocument:
+    Statement:
+    - Effect: Allow
+      Action:
+        - 'ssm:DescribeAssociation'
+        - 'ssm:GetDeployablePatchSnapshotForInstance'
+        - 'ssm:GetDocument'
+        - 'ssm:GetManifest'
+        - 'ssm:GetParameters'
+        - 'ssm:ListAssociations'
+        - 'ssm:ListInstanceAssociations'
+        - 'ssm:PutInventory'
+        - 'ssm:PutComplianceItems'
+        - 'ssm:PutConfigurePackageResult'
+        - 'ssm:UpdateAssociationStatus'
+        - 'ssm:UpdateInstanceAssociationStatus'
+        - 'ssm:UpdateInstanceInformation'
+        - 'ssmmessages:CreateControlChannel'
+        - 'ssmmessages:CreateDataChannel'
+        - 'ssmmessages:OpenControlChannel'
+        - 'ssmmessages:OpenDataChannel'
+        - 'ec2messages:AcknowledgeMessage'
+        - 'ec2messages:DeleteMessage'
+        - 'ec2messages:FailMessage'
+        - 'ec2messages:GetEndpoint'
+        - 'ec2messages:GetMessages'
+        - 'ec2messages:SendReply'
+        - 'cloudwatch:PutMetricData'
+        - 'ec2:DescribeInstanceStatus'
+        - 'ds:CreateComputer'
+        - 'ds:DescribeDirectories'
+        - 'logs:CreateLogGroup'
+        - 'logs:CreateLogStream'
+        - 'logs:DescribeLogGroups'
+        - 'logs:DescribeLogStreams'
+        - 'logs:PutLogEvents'
+      Resource: '*'
+    - Effect: Allow
+      Action:
+        - 's3:AbortMultipartUpload'
+        - 's3:GetBucketLocation'
+        - 's3:GetEncryptionConfiguration'
+        - 's3:GetObject'
+        - 's3:PutObject'
+        - 's3:ListBucket'
+        - 's3:ListBucketMultipartUploads'
+        - 's3:ListMultipartUploadParts'
+      Resource:
+        - !Join ['',['arn:aws:s3:::aws-ssm-',               !Ref 'AWS::Region'      ]]
+        - !Join ['',['arn:aws:s3:::aws-ssm-',               !Ref 'AWS::Region', '/*']]
+        - !Join ['',['arn:aws:s3:::aws-windows-downloads-', !Ref 'AWS::Region'      ]]
+        - !Join ['',['arn:aws:s3:::aws-windows-downloads-', !Ref 'AWS::Region', '/*']]
+        - !Join ['',['arn:aws:s3:::amazon-ssm-packages-',   !Ref 'AWS::Region'      ]]
+        - !Join ['',['arn:aws:s3:::amazon-ssm-packages-',   !Ref 'AWS::Region', '/*']]
