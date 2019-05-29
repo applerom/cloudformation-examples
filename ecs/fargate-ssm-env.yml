@@ -1,0 +1,440 @@
+Description: Fargate stack with SSM parameters in ECS Environment 
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label: 
+          default: VPC
+        Parameters: 
+          - Vpc1
+          - SubnetA
+          - SubnetB
+      - Label: 
+          default: Main
+        Parameters: 
+          - ServiceName
+          - DockerImage
+      - Label: 
+          default: Ports
+        Parameters: 
+          - ContainerPort
+          - LoadBalancerPort
+          - HealthCheckPath
+      - Label: 
+          default: DataBase
+        Parameters: 
+          - DbEndpoint
+          - DbUser
+          - DbPassword
+      - Label: 
+          default: SSM Parameter Names
+        Parameters: 
+          - ParamNameDbEndpoint
+          - ParamNameDbUser
+          - ParamNameDbPassword
+      - Label: 
+          default: AutoScaling
+        Parameters: 
+          - MinContainers
+          - MaxContainers
+          - DesiredCount
+          - AutoScalingTargetValue
+    ParameterLabels: 
+      Vpc1: 
+        default: VPC 
+      SubnetA: 
+        default: Select SubnetA
+      SubnetB: 
+        default: Select SubnetB
+      DockerImage: 
+        default: Setup DockerImage
+      DesiredCount: 
+        default: Setup DesiredCount
+
+Parameters:
+
+  Vpc1:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for Fargate container
+
+  SubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Description: SubnetA for Fargate container
+
+  SubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Description: SubnetB for Fargate container
+
+  DockerImage:
+    Type: String
+    Description: Docker image source
+    Default: wordpress:5.2
+
+  ServiceName:
+    Type: String
+    Description: Service name
+    Default: MyFargate
+
+  ContainerPort:
+    Type: Number
+    Description: Container Port
+    Default: 80
+
+  LoadBalancerPort:
+    Type: Number
+    Description: LoadBalancer Port
+    Default: 80
+
+  HealthCheckPath:
+    Type: String
+    Description: HealthCheck Path
+    Default: /favicon.ico
+
+  MinContainers:
+    Type: Number
+    Description: Min Containers
+    Default: 1
+
+  MaxContainers:
+    Type: Number
+    Description: Max Containers
+    Default: 1
+
+  DesiredCount:
+    Type: Number
+    Description: DesiredCount of containers
+    Default: 1
+
+  AutoScalingTargetValue:
+    Type: Number
+    Description: Target CPU utilization (%)
+    Default: 50
+
+  DbEndpoint:
+    Type: String
+    Description: DB endpoint
+    Default: '127.0.0.1'
+
+  ParamNameDbEndpoint:
+    Type: String
+    Description: Name of SSM Parameter for DB endpoint
+    Default: DbEndpoint
+
+  DbUser:
+    Type: String
+    Description: DB user
+    Default: wp-user
+
+  ParamNameDbUser:
+    Type: String
+    Description: Name of SSM Parameter for DB user
+    Default: DbUser
+
+  DbPassword:
+    Type: String
+    Description: DB password
+    Default: wp-password
+
+  ParamNameDbPassword:
+    Type: String
+    Description: Name of SSM Parameter for DB password
+    Default: DbPassword
+
+
+Resources:
+
+## IAM
+
+  roleExecution:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+      - PolicyName: get-ssm-parameters
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+              - 'ssm:GetParameters'
+              - 'secretsmanager:GetSecretValue'
+              - 'kms:Decrypt'
+            Resource: '*'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  roleTask:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+  roleAutoScaling:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+
+## CloudWatch
+
+  logGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceName, fargateTask]]
+
+## ECS cluster
+
+  ecsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ServiceName
+
+## SG
+
+  sgAlb: ## for ALB
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join [' ', [!Ref ServiceName, LoadBalancer]]
+      VpcId: !Ref Vpc1
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   !Ref LoadBalancerPort
+          ToPort:     !Ref LoadBalancerPort
+          CidrIp:     0.0.0.0/0
+          Description: !Join [' ', [!Ref ServiceName, 'port']]
+
+  sgContainer: ## for Fargate container
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join [' ', [!Ref ServiceName, Container]]
+      VpcId: !Ref Vpc1
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   !Ref ContainerPort
+          ToPort:     !Ref ContainerPort
+          SourceSecurityGroupId: !Ref sgAlb
+          Description: 'ContainerPort from ALB to Fargate container'
+
+## SSM
+
+  ssmparamDbEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:   !Ref ParamNameDbEndpoint
+      Type:   String
+      Value:  !Ref DbEndpoint
+      Description: SSM Parameter for DB endpoint
+
+  ssmparamDbUser:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:   !Ref ParamNameDbUser
+      Type:   String
+      Value:  !Ref DbUser
+      Description: SSM Parameter for DB user
+
+  ssmparamDbPassword:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:   !Ref ParamNameDbPassword
+      Type:   String
+      Value:  !Ref DbPassword
+      Description: SSM Parameter for DB password
+
+## ALB
+
+  albExt:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 90 # default is 60 seconds
+      Name: !Join ['', [!Ref ServiceName, LoadBalancer]]
+      Scheme: internet-facing # internal
+      SecurityGroups:
+        - !Ref sgAlb
+      Subnets:
+        - !Ref SubnetA
+        - !Ref SubnetB
+
+  albTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Join ['', [!Ref ServiceName, TargetGroup]]
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath:            !Ref HealthCheckPath
+      HealthCheckTimeoutSeconds:  5
+      UnhealthyThresholdCount:    2
+      HealthyThresholdCount:      2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 120 # default is 300
+      TargetType: ip
+      VpcId: !Ref Vpc1
+
+  listenerHttp:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref albTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref albExt
+      Port: !Ref LoadBalancerPort
+      Protocol: HTTP
+
+## Fargate
+
+  fargateTask:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - logGroup
+      - ssmparamDbEndpoint
+      - ssmparamDbUser
+      - ssmparamDbPassword
+    Properties:
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc # awsvpc is required for Fargate
+
+      Family: !Join ['', [!Ref ServiceName, fargateTask]]
+
+      TaskRoleArn:      !Ref roleTask
+      ExecutionRoleArn: !Ref roleExecution
+
+      Cpu: 512
+# 256 (.25vCPU) - Available memory values: 0.5GB, 1GB, 2GB
+# 512 (.5 vCPU) - Available memory values: 1GB, 2GB, 3GB, 4GB
+# 1024 (1 vCPU) - Available memory values: 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB
+# 2048 (2 vCPU) - Available memory values: Between 4GB and 16GB in 1GB increments
+# 4096 (4 vCPU) - Available memory values: Between 8GB and 30GB in 1GB increments
+      Memory: 1GB
+# 0.5GB, 1GB, 2GB - Available cpu values: 256 (.25 vCPU)
+# 1GB, 2GB, 3GB, 4GB - Available cpu values: 512 (.5 vCPU)
+# 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB - Available cpu values: 1024 (1 vCPU)
+# Between 4GB and 16GB in 1GB increments - Available cpu values: 2048 (2 vCPU)
+# Between 8GB and 30GB in 1GB increments - Available cpu values: 4096 (4 vCPU)
+
+      ContainerDefinitions:
+
+      - Name:       !Ref ServiceName
+        Image:      !Ref DockerImage
+        Essential:  true
+        Secrets:
+          - Name: WORDPRESS_DB_HOST
+            ValueFrom: !Join ['',['arn:aws:ssm:', !Ref 'AWS::Region', ':', !Ref 'AWS::AccountId', ':parameter/', !Ref ParamNameDbEndpoint]]
+          - Name: WORDPRESS_DB_USER
+            ValueFrom: !Join ['',['arn:aws:ssm:', !Ref 'AWS::Region', ':', !Ref 'AWS::AccountId', ':parameter/', !Ref ParamNameDbUser]]
+          - Name: WORDPRESS_DB_PASSWORD
+            ValueFrom: !Join ['',['arn:aws:ssm:', !Ref 'AWS::Region', ':', !Ref 'AWS::AccountId', ':parameter/', !Ref ParamNameDbPassword]]
+        Environment:
+          - Name: WORDPRESS_DB_NAME
+            Value: wp-db
+
+        PortMappings:
+          - ContainerPort: !Ref ContainerPort
+        Essential:  true
+        
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-region:         !Ref AWS::Region
+            awslogs-group:          !Ref logGroup
+            awslogs-stream-prefix:  fargate
+
+        DependsOn:
+          - ContainerName:  mysql
+            Condition:      START # COMPLETE | HEALTHY | START | SUCCESS
+
+      - Name:       mysql
+        Image:      mysql:5.7
+        Environment:
+          - Name: MYSQL_DATABASE
+            Value: wp-db
+          - Name: MYSQL_USER
+            Value: !Ref DbUser
+          - Name: MYSQL_PASSWORD
+            Value: !Ref DbPassword
+          - Name: MYSQL_RANDOM_ROOT_PASSWORD
+            Value: '1'
+
+        PortMappings:
+          - ContainerPort: 3306
+        
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-region:         !Ref AWS::Region
+            awslogs-group:          !Ref logGroup
+            awslogs-stream-prefix:  db
+
+  autoscalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ResourceId: !Join ['/', [service, !Ref ecsCluster, !GetAtt fargateService.Name]]
+      MinCapacity: !Ref MinContainers
+      MaxCapacity: !Ref MaxContainers
+      ScalableDimension:  ecs:service:DesiredCount
+      ServiceNamespace:   ecs
+      RoleARN: !GetAtt roleAutoScaling.Arn
+
+  autoscalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!Ref ServiceName, AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref autoscalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
+        TargetValue: !Ref AutoScalingTargetValue
+
+  fargateService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - listenerHttp
+    Properties: 
+      LaunchType: FARGATE
+      ServiceName:  !Ref ServiceName
+      Cluster:      !Ref ecsCluster
+      TaskDefinition: !Ref fargateTask
+      DesiredCount:   !Ref DesiredCount
+      HealthCheckGracePeriodSeconds: 30
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent:        200
+      NetworkConfiguration: 
+        AwsvpcConfiguration:      ## DISABLED for private subnets
+          AssignPublicIp: ENABLED ## (with NAT gateway for internet access)
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetB
+          SecurityGroups:
+            - !Ref sgContainer
+      LoadBalancers:
+        - ContainerName:  !Ref ServiceName
+          ContainerPort:  !Ref ContainerPort
+          TargetGroupArn: !Ref albTargetGroup
+
+
+Outputs:
+
+  dns1:
+    Value: !GetAtt [albExt, 'DNSName']
