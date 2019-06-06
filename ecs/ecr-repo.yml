@@ -1,0 +1,112 @@
+Description: ECR repository with LifecyclePolicy and cross-account access
+
+Parameters:
+
+  RepositoryName:
+    Type: String
+    Description: Name of ECR repository
+    Default: some-repo
+
+
+Resources:
+
+  ecrRepository: 
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+
+      RepositoryPolicyText: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: PullForOtherAccounts
+            Effect: Allow
+            Principal: 
+              AWS: 
+                - 'arn:aws:iam::123456789012:root' # Dev
+                - 'arn:aws:iam::234567890123:root' # Stage
+                - 'arn:aws:iam::345678901234:root' # Prod
+            Action: 
+              - 'ecr:BatchCheckLayerAvailability'
+              - 'ecr:BatchGetImage'
+              - 'ecr:GetDownloadUrlForLayer'
+              ## Push
+              #- 'ecr:BatchCheckLayerAvailability'
+              #- 'ecr:GetDownloadUrlForLayer'
+              #- 'ecr:PutImage'
+              #- 'ecr:InitiateLayerUpload'
+              #- 'ecr:UploadLayerPart'
+              #- 'ecr:CompleteLayerUpload'
+
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "action": {
+                  "type": "expire"
+                },
+                "selection": {
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 180,
+                  "tagStatus": "tagged",
+                  "tagPrefixList": [
+                    "develop"
+                  ]
+                },
+                "description": "clean 'develop*' after 180 days",
+                "rulePriority": 10
+              },
+              {
+                "action": {
+                  "type": "expire"
+                },
+                "selection": {
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 180,
+                  "tagStatus": "tagged",
+                  "tagPrefixList": [
+                    "feature"
+                  ]
+                },
+                "description": "clean 'feature*' after 180 days",
+                "rulePriority": 20
+              },
+              {
+                "action": {
+                  "type": "expire"
+                },
+                "selection": {
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 180,
+                  "tagStatus": "tagged",
+                  "tagPrefixList": [
+                    "hotfix"
+                  ]
+                },
+                "description": "clean 'hotfix*' after 180 days",
+                "rulePriority": 30
+              },
+              {
+                "action": {
+                  "type": "expire"
+                },
+                "selection": {
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 1,
+                  "tagStatus": "untagged"
+                },
+                "description": "clean Untagged after 1 day",
+                "rulePriority": 40
+              }
+            ]
+          }
+
+
+Outputs:
+
+  ecrRepository:
+    Value: !Ref ecrRepository
