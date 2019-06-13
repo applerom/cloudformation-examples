@@ -1,0 +1,189 @@
+Description: Proxy ECS service
+
+Parameters:
+
+  StdName:
+    Type: String
+    Description: Std name
+    Default: MyProxy
+
+  StdPort:
+    Type: Number
+    Description: Std port
+    Default: 8080
+
+  Cpu:
+    Type: Number
+    Description: CPU for docker
+    Default: 500 # 512 # 1024
+
+  Memory:
+    Type: Number
+    Description: Memory for docker
+    Default: 512 # 1024
+
+  DesiredCount:
+    Type: Number
+    Description: Number of tasks to launch in ECS cluster
+    Default: 1
+
+  MaxCapacity:
+    Type: Number
+    Description: Maximum number of containers that can be launched in ECS target group
+    Default: 1
+
+  MinCapacity:
+    Type: Number
+    Description: Minimum number of containers that can be launched in ECS target group
+    Default: 1
+
+  RedisAddress:
+    Description: Redis address
+    Type: String
+    Default: some-redis-address
+
+  DockerImage:
+    Description: Std image
+    Type: String
+    Default: some-docker-image
+
+  BackendUrl:
+    Description: Backend URL
+    Type: String
+    Default: some-url
+
+  SentryAddress:
+    Type: String
+    Description: Sentry address
+    Default: some-sentry-address
+
+  UseTestVariables: # switch type of variables
+    Type: String
+    Description: Use Test variables or Default
+    Default: 'no' # default
+
+
+Conditions:
+  UseDefault:
+    !Equals [!Ref UseTestVariables, 'no']
+  UseTest:
+    !Equals [!Ref UseTestVariables, 'yes']
+
+
+Resources:
+
+  ecsTask:
+    Condition: UseDefault # default Task
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref StdName
+      ContainerDefinitions:
+      - Name:       !Ref StdName
+        Image:      !Ref DockerImage
+        Essential:  true
+        Environment:
+          #********************************** default
+          - Name: BACKEND_URL
+            Value: !Ref BackendUrl
+          #********************************** default
+        PortMappings:
+          - ContainerPort: !Ref StdPort
+        Cpu:    !Ref Cpu
+        Memory: !Ref Memory
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-stream-prefix: !Ref StdName
+            awslogs-group:         !ImportValue loggroupVpc4
+            awslogs-region:        !Ref 'AWS::Region'
+
+  ecsTaskTest:
+    Condition: UseTest # Task with test variables
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref StdName
+      ContainerDefinitions:
+      - Name:       !Ref StdName
+        Image:      !Ref DockerImage
+        Essential:  true
+        Environment:
+          #********************************** Test variables
+          - Name: SENTRY_URL
+            Value: !Ref SentryAddress
+          - Name: REDIS_HOST
+            Value: !Ref RedisAddress
+          - Name: REDIS_PORT_NUMBER
+            Value: 6379
+          - Name: REDIS_DATABASE
+            Value: 0
+          #********************************** Test variables
+        PortMappings:
+          - ContainerPort: !Ref StdPort
+        Cpu:    !Ref Cpu
+        Memory: !Ref Memory
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-stream-prefix: !Ref StdName
+            awslogs-group:         !ImportValue loggroupVpc4
+            awslogs-region:        !Ref 'AWS::Region'
+
+  ecsService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName:    !Ref StdName
+      Cluster:        !ImportValue ecsCluster
+      TaskDefinition: !If [ UseTest, !Ref ecsTaskTest, !Ref ecsTask ] # use different task for different env
+      Role:           !ImportValue roleEcsService
+      DesiredCount:   !Ref DesiredCount
+      LoadBalancers:
+        - ContainerName:    !Ref StdName
+          ContainerPort:    !Ref StdPort
+          TargetGroupArn:   !ImportValue albTargetGroupProxy
+
+  appTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity:        !Ref MaxCapacity
+      MinCapacity:        !Ref MinCapacity
+      RoleARN:            !ImportValue roleAppAutoscalingArn
+      ServiceNamespace:   ecs
+      ScalableDimension:  ecs:service:DesiredCount
+      ResourceId:         !Join ['', ['service/', !ImportValue ecsCluster, '/', !GetAtt [ecsService, 'Name']]]
+
+
+  appPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName:       AStepPolicy
+      PolicyType:       StepScaling
+      ScalingTargetId:  !Ref appTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: PercentChangeInCapacity
+        Cooldown: 60
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalLowerBound: 0
+            ScalingAdjustment: 200
+
+  alarm500:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: 1
+      Statistic: Average
+      Threshold: 10
+      AlarmDescription: Alarm if our ALB generates too many HTTP 500s.
+      Period: 60
+      AlarmActions: [!Ref appPolicy]
+      Namespace: AWS/ApplicationELB
+      Dimensions:
+        - Name: EcsService
+          Value: !Ref ecsService
+      ComparisonOperator: GreaterThanThreshold
+      MetricName: !Join ['', ['HTTPCode_ELB_5XX_Count_', !Ref StdName]]
+
+
+Outputs:
+
+  ecsService:
+    Value: !Ref ecsService
