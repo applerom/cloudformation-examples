@@ -1,0 +1,891 @@
+Description: Create Vpc4 for A-F zones - DMZ and Private subnet with NAT Gateway
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label: 
+          default: Main parameters
+        Parameters: 
+          - CidrPre
+          - CidrBlockVpc4
+          - CreateNat
+          - MainDomain
+          - TagEnvironment
+      - Label: 
+          default: CIDR blocks - DMZ
+        Parameters: 
+          - CidrBlockVpc4DmzA
+          - CidrBlockVpc4DmzB
+          - CidrBlockVpc4DmzC
+          - CidrBlockVpc4DmzD
+          - CidrBlockVpc4DmzE
+          - CidrBlockVpc4DmzF
+      - Label: 
+          default: CIDR blocks - PrivateApp
+        Parameters: 
+          - CidrBlockVpc4PrivateAppA
+          - CidrBlockVpc4PrivateAppB
+          - CidrBlockVpc4PrivateAppC
+          - CidrBlockVpc4PrivateAppD
+          - CidrBlockVpc4PrivateAppE
+          - CidrBlockVpc4PrivateAppF
+      - Label: 
+          default: CIDR blocks - DB
+        Parameters: 
+          - CidrBlockVpc4PrivateDbA
+          - CidrBlockVpc4PrivateDbB
+          - CidrBlockVpc4PrivateDbC
+          - CidrBlockVpc4PrivateDbD
+          - CidrBlockVpc4PrivateDbE
+          - CidrBlockVpc4PrivateDbF
+    ParameterLabels: 
+      CidrPre: 
+        default: CIDR prefix
+      CidrBlockVpc4: 
+        default: CIDR block = prefix + postfix
+      CreateNat: 
+        default: Create NAT for private subnets?
+      MainDomain: 
+        default: Default domain for environment
+      TagEnvironment: 
+        default: Default tag for all environment resources
+
+Parameters:
+
+## Common parameters
+
+  MainDomain:
+    Description: Enter main domain
+    Type: String
+    Default: some.domain
+
+  TagEnvironment:
+    Description: Tag (development, stage, prod, test etc)
+    Type: String
+    Default: some-tag
+
+  ##AvailabilityZone1:
+  ##  Description: Availability Zone 1 Name in Region
+  ##  Type: AWS::EC2::AvailabilityZone::Name
+  ##  
+  ##AvailabilityZone2:
+  ##  Description: Availability Zone 2 Name in Region
+  ##  Type: AWS::EC2::AvailabilityZone::Name
+
+## CIDR IP blocks
+
+  CidrPre:
+    Description: CIDR prefix for Vpc4
+    Type: String
+    Default: '10.40'
+
+  CidrBlockVpc4:
+    Description: CIDR postfix for Vpc4
+    Type: String
+    Default: .0.0/16
+
+  CidrBlockVpc4DmzA:
+    Description: CIDR block for Vpc4 DMZ AZ-1a subnet
+    Type: String
+    Default: .11.0/24
+
+  CidrBlockVpc4DmzB:
+    Description: CIDR block for Vpc4 DMZ AZ-1b subnet
+    Type: String
+    Default: .12.0/24
+
+  CidrBlockVpc4DmzC:
+    Description: CIDR block for Vpc4 DMZ AZ-1c subnet
+    Type: String
+    Default: .13.0/24
+
+  CidrBlockVpc4DmzD:
+    Description: CIDR block for Vpc4 DMZ AZ-1d subnet
+    Type: String
+    Default: .14.0/24
+
+  CidrBlockVpc4DmzE:
+    Description: CIDR block for Vpc4 DMZ AZ-1e subnet
+    Type: String
+    Default: .15.0/24
+
+  CidrBlockVpc4DmzF:
+    Description: CIDR block for Vpc4 DMZ AZ-1f subnet
+    Type: String
+    Default: .16.0/24
+
+  CidrBlockVpc4PrivateAppA:
+    Description: CIDR block for Vpc4 Private Application AZ-1a subnet
+    Type: String
+    Default: .21.0/24
+
+  CidrBlockVpc4PrivateAppB:
+    Description: CIDR block for Vpc4 Private Application AZ-1b subnet
+    Type: String
+    Default: .22.0/24
+
+  CidrBlockVpc4PrivateAppC:
+    Description: CIDR block for Vpc4 Private Application AZ-1c subnet
+    Type: String
+    Default: .23.0/24
+
+  CidrBlockVpc4PrivateAppD:
+    Description: CIDR block for Vpc4 Private Application AZ-1d subnet
+    Type: String
+    Default: .24.0/24
+
+  CidrBlockVpc4PrivateAppE:
+    Description: CIDR block for Vpc4 Private Application AZ-1e subnet
+    Type: String
+    Default: .25.0/24
+
+  CidrBlockVpc4PrivateAppF:
+    Description: CIDR block for Vpc4 Private Application AZ-1f subnet
+    Type: String
+    Default: .26.0/24
+
+  CidrBlockVpc4PrivateDbA:
+    Description: CIDR block for Vpc4 Private DB AZ-1a subnet
+    Type: String
+    Default: .201.0/24
+
+  CidrBlockVpc4PrivateDbB:
+    Description: CIDR block for Vpc4 Private DB AZ-1b subnet
+    Type: String
+    Default: .202.0/24
+
+  CidrBlockVpc4PrivateDbC:
+    Description: CIDR block for Vpc4 Private DB AZ-1c subnet
+    Type: String
+    Default: .203.0/24
+
+  CidrBlockVpc4PrivateDbD:
+    Description: CIDR block for Vpc4 Private DB AZ-1d subnet
+    Type: String
+    Default: .204.0/24
+
+  CidrBlockVpc4PrivateDbE:
+    Description: CIDR block for Vpc4 Private DB AZ-1e subnet
+    Type: String
+    Default: .205.0/24
+
+  CidrBlockVpc4PrivateDbF:
+    Description: CIDR block for Vpc4 Private DB AZ-1f subnet
+    Type: String
+    Default: .206.0/24
+
+  LogGroupVpc4Name:
+    Description: Default Vpc4 log group name
+    Type: String
+    Default: Vpc4
+
+  CreateVpc:
+    Description: Create Vpc
+    Type: String
+    AllowedValues: [ 'yes', 'no' ]
+    Default: 'yes'
+
+  CreatePeer:
+    Description: Create Peer
+    Type: String
+    AllowedValues: [ 'yes', 'no' ]
+    Default: 'no'
+
+  CreateNat:
+    Description: Create NAT
+    Type: String
+    AllowedValues: [ 'yes', 'no' ]
+    Default: 'yes'
+
+
+Conditions:
+  CreateNat:
+    !Equals [!Ref CreateNat, 'yes']
+
+
+Resources:
+
+  vpc4:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4 ]]
+      InstanceTenancy: default
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: vpc4
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4DmzA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzA ]]
+      AvailabilityZone: !Select [0, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DMZ subnet A
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4DmzB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzB ]]
+      AvailabilityZone: !Select [1, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DMZ subnet B
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4DmzC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzC ]]
+      AvailabilityZone: !Select [2, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DMZ subnet C
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4DmzD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzD ]]
+      AvailabilityZone: !Select [3, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DMZ subnet D
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4DmzE:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzE ]]
+      AvailabilityZone: !Select [4, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DMZ subnet E
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4DmzF:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzF ]]
+      AvailabilityZone: !Select [5, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DMZ subnet F
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateAppA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppA ]]
+      AvailabilityZone: !Select [0, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 App subnet A
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateAppB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppB ]]
+      AvailabilityZone: !Select [1, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 App subnet B
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateAppC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppC ]]
+      AvailabilityZone: !Select [2, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 App subnet C
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateAppD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppD ]]
+      AvailabilityZone: !Select [3, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 App subnet D
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateAppE:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppE ]]
+      AvailabilityZone: !Select [4, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 App subnet E
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateAppF:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppF ]]
+      AvailabilityZone: !Select [5, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 App subnet F
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateDbA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbA ]]
+      AvailabilityZone: !Select [0, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DB subnet A
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateDbB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbB ]]
+      AvailabilityZone: !Select [1, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DB subnet B
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateDbC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbC ]]
+      AvailabilityZone: !Select [2, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DB subnet C
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateDbD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbD ]]
+      AvailabilityZone: !Select [3, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DB subnet D
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateDbE:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbE ]]
+      AvailabilityZone: !Select [4, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DB subnet E
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  subnetVpc4PrivateDbF:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbF ]]
+      AvailabilityZone: !Select [5, !GetAZs "" ]
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DB subnet F
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  igwVpc4:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Vpc4 Internet Gateway
+        - Key: Environment
+          Value: !Ref TagEnvironment
+
+  eipNat1:
+    Condition: CreateNat
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  natVpc4:
+    Condition: CreateNat
+    Type: AWS::EC2::NatGateway
+    DependsOn: igwVpc4
+    Properties:
+      AllocationId: !GetAtt eipNat1.AllocationId
+      SubnetId: !Ref subnetVpc4DmzA
+
+  rtbVpc4Dmz:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 DMZ Route
+
+  rtbVpc4Private:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref vpc4
+      Tags:
+        - Key: Name
+          Value: Vpc4 Private Route
+
+  vpcgwattachmentVpc4:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn: igwVpc4
+    Properties:
+      VpcId: !Ref vpc4
+      InternetGatewayId: !Ref igwVpc4
+
+  routeVpc4Dmz:
+    Type: AWS::EC2::Route
+    DependsOn: vpcgwattachmentVpc4
+    Properties:
+      RouteTableId: !Ref rtbVpc4Dmz
+      GatewayId: !Ref igwVpc4
+      DestinationCidrBlock: 0.0.0.0/0
+
+  routeVpc4Private:
+    Condition: CreateNat
+    Type: AWS::EC2::Route
+    DependsOn: vpcgwattachmentVpc4
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      NatGatewayId: !Ref natVpc4
+      DestinationCidrBlock: 0.0.0.0/0
+
+  subnetrtbassocVpc4DmzA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Dmz
+      SubnetId: !Ref subnetVpc4DmzA
+
+  subnetrtbassocVpc4DmzB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Dmz
+      SubnetId: !Ref subnetVpc4DmzB
+
+  subnetrtbassocVpc4DmzC:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Dmz
+      SubnetId: !Ref subnetVpc4DmzC
+
+  subnetrtbassocVpc4DmzD:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Dmz
+      SubnetId: !Ref subnetVpc4DmzD
+
+  subnetrtbassocVpc4DmzE:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Dmz
+      SubnetId: !Ref subnetVpc4DmzE
+
+  subnetrtbassocVpc4DmzF:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Dmz
+      SubnetId: !Ref subnetVpc4DmzF
+
+  subnetrtbassocVpc4PrivateAppA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateAppA
+
+  subnetrtbassocVpc4PrivateAppB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateAppB
+
+  subnetrtbassocVpc4PrivateAppC:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateAppC
+
+  subnetrtbassocVpc4PrivateAppD:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateAppD
+
+  subnetrtbassocVpc4PrivateAppE:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateAppE
+
+  subnetrtbassocVpc4PrivateAppF:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateAppF
+
+  subnetrtbassocVpc4PrivateDbA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateDbA
+
+  subnetrtbassocVpc4PrivateDbB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateDbB
+
+  subnetrtbassocVpc4PrivateDbC:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateDbC
+
+  subnetrtbassocVpc4PrivateDbD:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateDbD
+
+  subnetrtbassocVpc4PrivateDbE:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateDbE
+
+  subnetrtbassocVpc4PrivateDbF:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref rtbVpc4Private
+      SubnetId: !Ref subnetVpc4PrivateDbF
+
+  dhcpVpc4:
+    Type: 'AWS::EC2::DHCPOptions'
+    Properties:
+      DomainName: !Join ['.', ['internal', !Ref MainDomain]]
+      DomainNameServers:
+        - AmazonProvidedDNS
+
+  dhcpassocVpc4:
+    Type: 'AWS::EC2::VPCDHCPOptionsAssociation'
+    Properties:
+      VpcId: !Ref vpc4
+      DhcpOptionsId: !Ref dhcpVpc4
+
+  loggroupVpc4:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref LogGroupVpc4Name
+      RetentionInDays: 14
+
+
+Outputs:
+
+## Common parameters
+
+  TagEnvironment:
+    Value: !Ref TagEnvironment
+    Export:
+      Name: TagEnvironment
+
+  MainDomain:
+    Value: !Ref MainDomain
+    Export:
+      Name: MainDomain
+
+  AvailabilityZone1:
+    Value: !Select [0, !GetAZs "" ]
+    Export:
+      Name: AvailabilityZone1
+
+  AvailabilityZone2:
+    Value: !Select [1, !GetAZs "" ]
+    Export:
+      Name: AvailabilityZone2
+
+  AvailabilityZone3:
+    Value: !Select [2, !GetAZs "" ]
+    Export:
+      Name: AvailabilityZone3
+
+  AvailabilityZone4:
+    Value: !Select [3, !GetAZs "" ]
+    Export:
+      Name: AvailabilityZone4
+
+  AvailabilityZone5:
+    Value: !Select [4, !GetAZs "" ]
+    Export:
+      Name: AvailabilityZone5
+
+  AvailabilityZone6:
+    Value: !Select [5, !GetAZs "" ]
+    Export:
+      Name: AvailabilityZone6
+
+## CIDR IP blocks
+
+  CidrBlockVpc4:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4 ]]
+    Export:
+      Name: CidrBlockVpc4
+
+  CidrBlockVpc4DmzA:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzA ]]
+    Export:
+      Name: CidrBlockVpc4DmzA
+
+  CidrBlockVpc4DmzB:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzB ]]
+    Export:
+      Name: CidrBlockVpc4DmzB
+
+  CidrBlockVpc4DmzC:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzC ]]
+    Export:
+      Name: CidrBlockVpc4DmzC
+
+  CidrBlockVpc4DmzD:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzD ]]
+    Export:
+      Name: CidrBlockVpc4DmzD
+
+  CidrBlockVpc4DmzE:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzE ]]
+    Export:
+      Name: CidrBlockVpc4DmzE
+
+  CidrBlockVpc4DmzF:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4DmzF ]]
+    Export:
+      Name: CidrBlockVpc4DmzF
+
+  CidrBlockVpc4PrivateAppA:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppA ]]
+    Export:
+      Name: CidrBlockVpc4PrivateAppA
+
+  CidrBlockVpc4PrivateAppB:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppB ]]
+    Export:
+      Name: CidrBlockVpc4PrivateAppB
+
+  CidrBlockVpc4PrivateAppC:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppC ]]
+    Export:
+      Name: CidrBlockVpc4PrivateAppC
+
+  CidrBlockVpc4PrivateAppD:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppD ]]
+    Export:
+      Name: CidrBlockVpc4PrivateAppD
+
+  CidrBlockVpc4PrivateAppE:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppE ]]
+    Export:
+      Name: CidrBlockVpc4PrivateAppE
+
+  CidrBlockVpc4PrivateAppF:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateAppF ]]
+    Export:
+      Name: CidrBlockVpc4PrivateAppF
+
+  CidrBlockVpc4PrivateDbA:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbA ]]
+    Export:
+      Name: CidrBlockVpc4PrivateDbA
+
+  CidrBlockVpc4PrivateDbB:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbB ]]
+    Export:
+      Name: CidrBlockVpc4PrivateDbB
+
+  CidrBlockVpc4PrivateDbC:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbC ]]
+    Export:
+      Name: CidrBlockVpc4PrivateDbC
+
+  CidrBlockVpc4PrivateDbD:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbD ]]
+    Export:
+      Name: CidrBlockVpc4PrivateDbD
+
+  CidrBlockVpc4PrivateDbE:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbE ]]
+    Export:
+      Name: CidrBlockVpc4PrivateDbE
+
+  CidrBlockVpc4PrivateDbF:
+    Value: !Join ['', [ !Ref CidrPre, !Ref CidrBlockVpc4PrivateDbF ]]
+    Export:
+      Name: CidrBlockVpc4PrivateDbF
+
+  CreateVpc:
+    Value: !Ref CreateVpc
+
+  CreatePeer:
+    Value: !Ref CreatePeer
+
+## created resources
+
+  vpc4:
+    Value: !Ref vpc4
+    Export:
+      Name: vpc4
+
+  subnetVpc4DmzA:
+    Value: !Ref subnetVpc4DmzA
+    Export:
+      Name: subnetVpc4DmzA
+
+  subnetVpc4DmzB:
+    Value: !Ref subnetVpc4DmzB
+    Export:
+      Name: subnetVpc4DmzB
+
+  subnetVpc4DmzC:
+    Value: !Ref subnetVpc4DmzC
+    Export:
+      Name: subnetVpc4DmzC
+
+  subnetVpc4DmzD:
+    Value: !Ref subnetVpc4DmzD
+    Export:
+      Name: subnetVpc4DmzD
+
+  subnetVpc4DmzE:
+    Value: !Ref subnetVpc4DmzE
+    Export:
+      Name: subnetVpc4DmzE
+
+  subnetVpc4DmzF:
+    Value: !Ref subnetVpc4DmzF
+    Export:
+      Name: subnetVpc4DmzF
+
+  subnetVpc4PrivateAppA:
+    Value: !Ref subnetVpc4PrivateAppA
+    Export:
+      Name: subnetVpc4PrivateAppA
+
+  subnetVpc4PrivateAppB:
+    Value: !Ref subnetVpc4PrivateAppB
+    Export:
+      Name: subnetVpc4PrivateAppB
+
+  subnetVpc4PrivateAppC:
+    Value: !Ref subnetVpc4PrivateAppC
+    Export:
+      Name: subnetVpc4PrivateAppC
+
+  subnetVpc4PrivateAppD:
+    Value: !Ref subnetVpc4PrivateAppD
+    Export:
+      Name: subnetVpc4PrivateAppD
+
+  subnetVpc4PrivateAppE:
+    Value: !Ref subnetVpc4PrivateAppE
+    Export:
+      Name: subnetVpc4PrivateAppE
+
+  subnetVpc4PrivateAppF:
+    Value: !Ref subnetVpc4PrivateAppF
+    Export:
+      Name: subnetVpc4PrivateAppF
+
+  subnetVpc4PrivateDbA:
+    Value: !Ref subnetVpc4PrivateDbA
+    Export:
+      Name: subnetVpc4PrivateDbA
+
+  subnetVpc4PrivateDbB:
+    Value: !Ref subnetVpc4PrivateDbB
+    Export:
+      Name: subnetVpc4PrivateDbB
+
+  subnetVpc4PrivateDbC:
+    Value: !Ref subnetVpc4PrivateDbC
+    Export:
+      Name: subnetVpc4PrivateDbC
+
+  subnetVpc4PrivateDbD:
+    Value: !Ref subnetVpc4PrivateDbD
+    Export:
+      Name: subnetVpc4PrivateDbD
+
+  subnetVpc4PrivateDbE:
+    Value: !Ref subnetVpc4PrivateDbE
+    Export:
+      Name: subnetVpc4PrivateDbE
+
+  subnetVpc4PrivateDbF:
+    Value: !Ref subnetVpc4PrivateDbF
+    Export:
+      Name: subnetVpc4PrivateDbF
+
+  rtbVpc4Dmz:
+    Value: !Ref rtbVpc4Dmz
+    Export:
+      Name: rtbVpc4Dmz
+
+  rtbVpc4Private:
+    Value: !Ref rtbVpc4Private
+    Export:
+      Name: rtbVpc4Private
+
+  loggroupVpc4:
+    Value: !Ref loggroupVpc4
+    Export:
+      Name: loggroupVpc4
