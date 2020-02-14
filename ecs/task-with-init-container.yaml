@@ -1,0 +1,242 @@
+Description: Init ECS task with init stage example
+
+Parameters:
+
+  StdName:
+    Type: String
+    Description: Std name
+    Default: Some-Back
+
+  StdNameInit:
+    Type: String
+    Description: Std name init stage
+    Default: Some-Init
+
+  PortStd:
+    Type: Number
+    Description: Std port
+    Default: 80
+
+  Cpu:
+    Type: Number
+    Description: CPU for docker
+    Default: 200
+
+  Memory:
+    Type: Number
+    Description: Memory for docker
+    Default: 1300
+
+  CpuInit:
+    Type: Number
+    Description: CPU for docker
+    Default: 300
+
+  MemoryInit:
+    Type: Number
+    Description: Memory for docker
+    Default: 2048
+
+  DesiredCount:
+    Type: Number
+    Description: Number of containers to launch in ECS service
+    Default: 1
+
+  MaxCapacity:
+    Type: Number
+    Description: Maximum number of containers that can be launched in ECS target group
+    Default: 1
+
+  MinCapacity:
+    Type: Number
+    Description: Minimum number of containers that can be launched in ECS target group
+    Default: 1
+
+  RdsPostgresAddress:
+    Type: String
+    Description: RDS URL
+    Default: some-rds-address
+
+  DbUser:
+    Type: String
+    Description: DB user
+    Default: some-user
+
+  DbPassword:
+    Type: String
+    Description: DB password
+    Default: some-pas
+
+  DockerImage:
+    Type: String
+    Description: Docker image
+    Default: some-image
+
+  BucketFiles:
+    Type: String
+    Description: S3 Bucket Name
+    Default: some-bucket
+
+  SentryAddress:
+    Type: String
+    Description: Sentry address
+    Default: some-address
+
+
+Resources:
+
+  roleStd:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['-', ['role', !Ref StdName]]
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: es-service
+          PolicyDocument:
+            Statement:
+            - Action: 
+                - 'es:*'
+              Effect: Allow
+              Resource: '*'
+        - PolicyName: sqs-service
+          PolicyDocument:
+            Statement:
+            - Action: 
+                - 'sqs:*'
+              Effect: Allow
+              Resource: '*'
+        - PolicyName: s3-access
+          PolicyDocument:
+            Statement:
+            - Action: 's3:*'
+              Effect: Allow
+              Resource:
+                - !Sub "arn:aws:s3:::${BucketFiles}"
+                - !Sub "arn:aws:s3:::${BucketFiles}/*"
+
+  ecsTaskWithInit:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref StdNameInit
+      TaskRoleArn: !Ref roleStd
+      ContainerDefinitions:
+
+      - Name:       !Ref StdNameInit
+        Image:      !Ref DockerImage
+        Essential:  false
+        Environment:
+          - Name: DB_HOST
+            Value: !Ref RdsPostgresAddress
+          - Name: DB_USER
+            Value: !Ref DbUser
+          - Name: DB_PASSWORD
+            Value: !Ref DbPassword
+        Command:
+          - sh
+          - '-c'
+          - !Sub |
+            cd /home/my/app \
+              && ./setup.py migrate --noinput \
+              && ./setup.py rebuild_index --noinput
+        Cpu:    !Ref CpuInit
+        Memory: !Ref MemoryInit
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-stream-prefix: !Ref StdNameInit
+            awslogs-group:         !ImportValue loggroupVpc4
+            awslogs-region:        !Ref 'AWS::Region'
+
+      - Name:       !Ref StdName
+        Image:      !Ref DockerImage
+        Essential:  true
+        Links:
+          - !Ref StdNameInit
+        Environment:
+          - Name: DB_HOST
+            Value: !Ref RdsPostgresAddress
+          - Name: DB_USER
+            Value: !Ref DbUser
+          - Name: DB_PASSWORD
+            Value: !Ref DbPassword
+          - Name: SENTRY_DSN
+            Value: !Ref SentryAddress
+        PortMappings:
+          - ContainerPort: !Ref PortStd
+        Cpu:    !Ref Cpu
+        Memory: !Ref Memory
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-stream-prefix: !Ref StdName
+            awslogs-group:         !ImportValue loggroupVpc4
+            awslogs-region:        !Ref 'AWS::Region'
+
+  appTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity:        !Ref MaxCapacity
+      MinCapacity:        !Ref MinCapacity
+      RoleARN:            !ImportValue roleAppAutoscalingArn
+      ServiceNamespace:   ecs
+      ScalableDimension:  ecs:service:DesiredCount
+      ResourceId:         !Join ['', ['service/', !ImportValue ecsCluster, '/', !GetAtt [ecsService, 'Name']]]
+
+
+  appPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName:       AStepPolicy
+      PolicyType:       StepScaling
+      ScalingTargetId:  !Ref appTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: PercentChangeInCapacity
+        Cooldown: 60
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalLowerBound: 0
+            ScalingAdjustment: 200
+
+  alarm500:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: 1
+      Statistic: Average
+      Threshold: 10
+      AlarmDescription: Alarm if our ALB generates too many HTTP 500s.
+      Period: 60
+      AlarmActions: [!Ref appPolicy]
+      Namespace: AWS/ApplicationELB
+      Dimensions:
+        - Name: EcsService
+          Value: !Ref ecsService
+      ComparisonOperator: GreaterThanThreshold
+      MetricName: !Join ['', ['HTTPCode_ELB_5XX_Count_', !Ref StdName]]
+
+  ecsService:
+    Type: AWS::ECS::Service
+    ##DependsOn: listenerHttp
+    Properties:
+      ServiceName:    !Ref StdName
+      Cluster:        !ImportValue ecsCluster
+      TaskDefinition: !Ref ecsTaskInit
+      Role:           !ImportValue roleEcsService
+      DesiredCount:   !Ref DesiredCount
+      LoadBalancers:
+        - ContainerName:    !Ref StdName
+          ContainerPort:    !Ref PortStd
+          TargetGroupArn:   !ImportValue albTargetGroupBack
+
+
+Outputs:
+
+  ecsService:
+    Value: !Ref ecsService
+  ecsTask:
+    Value: !Ref ecsTask
