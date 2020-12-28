@@ -1,0 +1,36 @@
+  launchTemplateGeneral:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: General
+      LaunchTemplateData:
+        InstanceType: !Ref NodeInstanceType
+        SecurityGroupIds:
+          - !Ref NodeSecurityGroup
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              VolumeSize: !Ref NodeVolumeSize
+              VolumeType: gp2
+              Encrypted: true
+              KmsKeyId: !Ref KmsKeyId
+
+  eksNgGeneral:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName:  !Ref eksCluster
+      NodeRole:     !GetAtt roleNodeInstance.Arn
+      NodegroupName:  General
+      LaunchTemplate:
+        Id: !Ref launchTemplateGeneral
+      Labels:
+        nodetype: general
+        #prometheus: enabled
+      ScalingConfig:
+        MinSize:      !Ref MinSize
+        MaxSize:      !Ref MaxSize
+        DesiredSize:  !Ref DesiredCapacity
+      Subnets:
+        - !ImportValue subnetPrivateAppA
+        - !ImportValue subnetPrivateAppB
+        - !ImportValue subnetPrivateAppC
