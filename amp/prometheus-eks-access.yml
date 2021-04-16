@@ -1,0 +1,54 @@
+
+eksCluster:
+  Type: AWS::EKS::Cluster
+  Properties:
+    Name: !Ref EksName
+    ResourcesVpcConfig:
+      SecurityGroupIds: 
+        - !Ref sgEksControlPlane
+      SubnetIds:
+        - !ImportValue subnetVpc4PrivateAppA
+        - !ImportValue subnetVpc4PrivateAppB
+        - !ImportValue subnetVpc4PrivateAppC
+     RoleArn: !GetAtt roleEksService.Arn
+    Version: !Ref EksVersion
+    EncryptionConfig:
+      - Provider:
+          KeyArn: !Ref KmsKeyId
+        Resources:
+          - secrets
+
+roleAwsPrometheus:
+  Type: AWS::IAM::Role
+  Properties:
+    RoleName: !Ref PrometheusRoleName
+    AssumeRolePolicyDocument: !Sub
+      - |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/oidc.eks.${AWS::Region}.amazonaws.com/id/${Id}"
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "oidc.eks.${AWS::Region}.amazonaws.com/id/${Id}:sub": "system:serviceaccount:${Namespace}:${ServiceAccount}"
+                }
+              }
+            }
+          ]
+        }
+      - Id: !Select [0, !Split ['.', !Select [1, !Split ['://', !GetAtt eksCluster.Endpoint]]]]
+        Namespace:      !Ref PrometheusKuberNamespace
+        ServiceAccount: !Ref PrometheusServiceAccountName
+    Path: /
+    Policies:
+      - PolicyName: switch-to-crossaccount-aws-prometheus
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: 'sts:AssumeRole'
+            Resource: !Ref PrometheusCrossaccountRoleArn
