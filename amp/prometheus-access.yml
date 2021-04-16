@@ -1,0 +1,81 @@
+Description: Amazon Managed Prometheus (AMP) access
+
+Parameters:
+
+  RoleName:
+    Type: String
+    Description: Amazon Managed Prometheus (AMP) Role Name
+    Default: AwsPrometheusRole
+
+  OidcProviderId:
+    Type: String
+    Description: EKS Cluster OIDC Provider ID
+    Default: '*'
+
+  KuberNameSpace:
+    Type: String
+    Description: Prometheus Kubernetes --namespace
+    Default: kube-system
+
+  ServiceAccountName:
+    Type: String
+    Description: Prometheus Kubernetes Service Account Name
+    Default: service-account-aws-prometheus
+
+  CrossaccountRoleArn:
+    Type: String
+    Description: Prometheus Crossaccount Role ARN
+    Default: ''
+
+Resources:
+
+  roleAwsPrometheus:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/oidc.eks.${AWS::Region}.amazonaws.com/id/${Id}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "oidc.eks.${AWS::Region}.amazonaws.com/id/${Id}:sub": "system:serviceaccount:${NameSpace}:${ServiceAccount}"
+                  }
+                }
+              }
+            ]
+          }
+        - Id:             !Ref OidcProviderId
+          NameSpace:      !Ref KuberNameSpace
+          ServiceAccount: !Ref ServiceAccountName
+      Path: /
+      Policies:
+        - PolicyName: switch-to-crossaccount-aws-prometheus
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action: 'sts:AssumeRole'
+              Resource: !Ref CrossaccountRoleArn
+        - PolicyName: write-to-local-aws-prometheus
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - 'aps:RemoteWrite'
+                - 'aps:GetSeries'
+                - 'aps:GetLabels'
+                - 'aps:GetMetricMetadata'
+              Resource: '*'
+
+
+Outputs:
+
+  roleAwsPrometheus:
+    Value: !GetAtt roleAwsPrometheus.Arn
