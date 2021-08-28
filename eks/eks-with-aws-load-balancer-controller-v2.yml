@@ -1,0 +1,457 @@
+Description: EKS cluster with AWS Load Balancer Controller v2
+
+Parameters:
+
+  EksName:
+    Type: String
+    Description: EKS cluster name.
+    Default: some-eks
+
+  EksVersion:
+    Type: String
+    Description: EKS cluster version
+    Default: latest
+
+## Workers
+
+  NodeAutoScalingGroupDesiredCapacity:
+    Type: Number
+    Description: Desired capacity of Node Group ASG.
+    Default: 3
+
+  NodeAutoScalingGroupMaxSize:
+    Type: Number
+    Description: Maximum size of Node Group ASG. Set to at least 1 greater than NodeAutoScalingGroupDesiredCapacity.
+    Default: 4
+
+  NodeAutoScalingGroupMinSize:
+    Type: Number
+    Description: Minimum size of Node Group ASG.
+    Default: 1
+
+  NodeGroupName:
+    Type: String
+    Description: Unique identifier for the Node Group.
+    Default: some-unique-name
+
+  NodeInstanceType: # care of IP limit by instance type
+    Type: String # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html#AvailableIpPerENI
+    Description: EC2 instance type for the node instances
+    Default: t3.small
+
+  NodeVolumeSize:
+    Type: Number
+    Default: 20
+    Description: Node volume size
+
+  KmsKeyId:
+    Type: String
+    Description: KMS ARN
+    Default: ''
+
+## AWS LoadBalancer Controller
+
+  ServiceAccountAwsLoadBalancerController:
+    Type: String
+    Description: AwsLoadBalancerController Service Account Name
+    Default: service-account-aws-load-balancer-controller
+
+  NamespaceAwsLoadBalancerController:
+    Type: String
+    Description: AwsLoadBalancerController Kubernetes --namespace
+    Default: kube-system
+
+Resources:
+
+  sgControlPlane:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EKS cluster communication with worker nodes
+      VpcId: !ImportValue vpc4
+
+  roleEksService:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: EksServiceRole
+      AssumeRolePolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: Allow
+            Principal: 
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+
+  eksCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref EksName
+      ResourcesVpcConfig:
+        SecurityGroupIds: 
+          - !Ref sgControlPlane
+        SubnetIds:
+          - !ImportValue subnetVpc4DmzA
+          - !ImportValue subnetVpc4DmzB
+          - !ImportValue subnetVpc4DmzC
+          - !ImportValue subnetVpc4PrivateAppA
+          - !ImportValue subnetVpc4PrivateAppB
+          - !ImportValue subnetVpc4PrivateAppC
+          - !ImportValue subnetVpc4PrivateDbA
+          - !ImportValue subnetVpc4PrivateDbB
+          - !ImportValue subnetVpc4PrivateDbC
+      RoleArn: !GetAtt roleEksService.Arn
+      Version: !Ref EksVersion
+      EncryptionConfig:
+        - Provider:
+            KeyArn: !Ref KmsKeyId
+          Resources:
+            - secrets
+
+  roleNodeInstance:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: ebs-encryption-for-eks-managed-node-groups
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - 'kms:Decrypt'
+                - 'kms:Encrypt'
+                - 'kms:GenerateDataKey'
+              Resource: !Ref KmsKeyId
+        - PolicyName: logs
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - 'logs:DescribeLogGroups'
+                - 'logs:DescribeLogStreams'
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+        - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        - "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+
+  roleAwsLoadBalancerController:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref ServiceAccountAwsLoadBalancerController
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/oidc.eks.${AWS::Region}.amazonaws.com/id/${Id}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "oidc.eks.${AWS::Region}.amazonaws.com/id/${Id}:sub": "system:serviceaccount:${Namespace}:${ServiceAccount}"
+                  }
+                }
+              }
+            ]
+          }
+        - Id: !Select [0, !Split ['.', !Select [1, !Split ['://', !GetAtt eksCluster.Endpoint]]]]
+          Namespace:      !Ref NamespaceAwsLoadBalancerController
+          ServiceAccount: !Ref ServiceAccountAwsLoadBalancerController
+      Path: /
+      Policies:
+        ## https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
+        - PolicyName: AWSLoadBalancerControllerIAMPolicy
+          PolicyDocument:
+            Statement:
+
+            - Effect: Allow
+              Action:
+                - 'iam:CreateServiceLinkedRole' # potential security vulnerability! https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-reference-policy-checks.html#access-analyzer-reference-policy-checks-general-warning-create-slr-with-star-in-resource
+                - 'ec2:DescribeAccountAttributes'
+                - 'ec2:DescribeAddresses'
+                - 'ec2:DescribeAvailabilityZones'
+                - 'ec2:DescribeInternetGateways'
+                - 'ec2:DescribeVpcs'                                            # security issue
+                - 'ec2:DescribeSubnets'                                         # security issue
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeInstances'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeTags'                                            # security issue
+                - 'ec2:GetCoipPoolUsage'
+                - 'ec2:DescribeCoipPools'
+                - 'elasticloadbalancing:DescribeLoadBalancers'
+                - 'elasticloadbalancing:DescribeLoadBalancerAttributes'
+                - 'elasticloadbalancing:DescribeListeners'
+                - 'elasticloadbalancing:DescribeListenerCertificates'
+                - 'elasticloadbalancing:DescribeSSLPolicies'
+                - 'elasticloadbalancing:DescribeRules'
+                - 'elasticloadbalancing:DescribeTargetGroups'
+                - 'elasticloadbalancing:DescribeTargetGroupAttributes'
+                - 'elasticloadbalancing:DescribeTargetHealth'
+                - 'elasticloadbalancing:DescribeTags'
+              Resource: '*'
+
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:DescribeUserPoolClient'
+                - 'acm:ListCertificates'
+                - 'acm:DescribeCertificate'
+                - 'iam:ListServerCertificates'
+                - 'iam:GetServerCertificate'
+                - 'waf-regional:GetWebACL'
+                - 'waf-regional:GetWebACLForResource'
+                - 'waf-regional:AssociateWebACL'
+                - 'waf-regional:DisassociateWebACL'
+                - 'wafv2:GetWebACL'                                             # security issue
+                - 'wafv2:GetWebACLForResource'
+                - 'wafv2:AssociateWebACL'
+                - 'wafv2:DisassociateWebACL'
+                - 'shield:GetSubscriptionState'
+                - 'shield:DescribeProtection'
+                - 'shield:CreateProtection'
+                - 'shield:DeleteProtection'
+              Resource: '*'
+
+            - Effect: Allow
+              Action:
+                - 'ec2:AuthorizeSecurityGroupIngress'
+                - 'ec2:RevokeSecurityGroupIngress'
+              Resource: '*'
+
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateSecurityGroup'
+              Resource: '*'
+
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateTags'                                              # security warning
+              Resource: 'arn:aws:ec2:*:*:security-group/*'
+              Condition:
+                StringEquals:
+                  ec2:CreateAction: 'CreateSecurityGroup'
+                'Null':
+                  aws:RequestTag/elbv2.k8s.aws/cluster: 'false'
+
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateTags'                                              # security warning
+                - 'ec2:DeleteTags'                                              # security warning
+              Resource: 'arn:aws:ec2:*:*:security-group/*'
+              Condition:
+                'Null':
+                  aws:RequestTag/elbv2.k8s.aws/cluster: 'true'
+                  aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+
+            - Effect: Allow
+              Action:
+                - 'ec2:AuthorizeSecurityGroupIngress'
+                - 'ec2:RevokeSecurityGroupIngress'
+                - 'ec2:DeleteSecurityGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:CreateLoadBalancer'
+                - 'elasticloadbalancing:CreateTargetGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  aws:RequestTag/elbv2.k8s.aws/cluster: 'false'
+
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:CreateListener'
+                - 'elasticloadbalancing:DeleteListener'
+                - 'elasticloadbalancing:CreateRule'
+                - 'elasticloadbalancing:DeleteRule'
+              Resource: '*'
+
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:AddTags'
+                - 'elasticloadbalancing:RemoveTags'
+              Resource:
+                - 'arn:aws:elasticloadbalancing:*:*:targetgroup/*/*'
+                - 'arn:aws:elasticloadbalancing:*:*:loadbalancer/net/*/*'
+                - 'arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*'
+              Condition:
+                'Null':
+                  aws:RequestTag/elbv2.k8s.aws/cluster: 'true'
+                  aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:AddTags'
+                - 'elasticloadbalancing:RemoveTags'
+              Resource:
+                - 'arn:aws:elasticloadbalancing:*:*:listener/net/*/*/*'
+                - 'arn:aws:elasticloadbalancing:*:*:listener/app/*/*/*'
+                - 'arn:aws:elasticloadbalancing:*:*:listener-rule/net/*/*/*'
+                - 'arn:aws:elasticloadbalancing:*:*:listener-rule/app/*/*/*'
+
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:ModifyLoadBalancerAttributes'
+                - 'elasticloadbalancing:SetIpAddressType'
+                - 'elasticloadbalancing:SetSecurityGroups'
+                - 'elasticloadbalancing:SetSubnets'
+                - 'elasticloadbalancing:DeleteLoadBalancer'
+                - 'elasticloadbalancing:ModifyTargetGroup'
+                - 'elasticloadbalancing:ModifyTargetGroupAttributes'
+                - 'elasticloadbalancing:DeleteTargetGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:RegisterTargets'
+                - 'elasticloadbalancing:DeregisterTargets'
+              Resource: 'arn:aws:elasticloadbalancing:*:*:targetgroup/*/*'
+
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:SetWebAcl'
+                - 'elasticloadbalancing:ModifyListener'
+                - 'elasticloadbalancing:AddListenerCertificates'
+                - 'elasticloadbalancing:RemoveListenerCertificates'
+                - 'elasticloadbalancing:ModifyRule'
+              Resource: '*'
+  ## end of roleServiceAccountAwsLoadBalancerController
+
+  sgNode:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for all nodes in the cluster
+      Tags:
+        - Key: !Sub kubernetes.io/cluster/${EksName}
+          Value: owned
+      VpcId: !ImportValue vpc4
+
+  sgiNode:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgNode
+      IpProtocol: "-1"
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref sgNode
+      Description: Allow node to communicate with each other
+
+  sgiControlPlane:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgControlPlane
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref sgNode
+      Description: Allow pods to communicate with the cluster API Server
+
+  sgeControlPlaneToNode:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgControlPlane
+      IpProtocol: tcp
+      DestinationSecurityGroupId: !Ref sgNode
+      FromPort: 1025
+      ToPort: 65535
+      Description: Allow the cluster control plane to communicate with worker Kubelet and pods
+
+  sgeControlPlaneToNodeOn443:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgControlPlane
+      IpProtocol: tcp
+      DestinationSecurityGroupId: !Ref sgNode
+      FromPort: 443
+      ToPort: 443
+      Description: Allow the cluster control plane to communicate with pods running extension API servers on port 443
+
+  sgiNodeFromControlPlane:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgNode
+      IpProtocol: tcp
+      FromPort: 1025
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref sgControlPlane
+      Description: Allow worker Kubelets and pods to receive communication from the cluster control plane
+
+  sgiNodeFromControlPlaneOn443:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgNode
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref sgControlPlane
+      Description: Allow pods running extension API servers on port 443 to receive communication from cluster control plane
+
+## Workers
+
+  launchTemplateGeneral:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: General
+      LaunchTemplateData:
+        InstanceType: !Ref NodeInstanceType
+        SecurityGroupIds:
+          - !Ref sgNode
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              VolumeSize: !Ref NodeVolumeSize
+              VolumeType: gp3
+              Encrypted: true
+              KmsKeyId: !Ref KmsKeyId
+
+  eksNgGeneral:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName:  !Ref eksCluster
+      NodeRole:     !GetAtt roleNodeInstance.Arn
+      NodegroupName:  General
+      LaunchTemplate:
+        Id: !Ref launchTemplateGeneral
+      Labels:
+        nodetype: general
+      ScalingConfig:
+        MinSize:      !Ref NodeAutoScalingGroupMinSize
+        MaxSize:      !Ref NodeAutoScalingGroupMaxSize
+        DesiredSize:  !Ref NodeAutoScalingGroupDesiredCapacity
+      Subnets:
+        - !ImportValue subnetVpc4PrivateAppA
+        - !ImportValue subnetVpc4PrivateAppB
+        - !ImportValue subnetVpc4PrivateAppC
+
+
+Outputs:
+
+  sgControlPlane:
+    Value: !Ref sgControlPlane
+    Export:
+      Name: sgControlPlane
