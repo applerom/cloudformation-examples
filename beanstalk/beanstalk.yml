@@ -69,12 +69,15 @@ Parameters:
     Description: Notification Email
     Default: some-email
 
+## This template assumes variables '!ImportValue' for VPC settings - VPC ID, security groups, etc.
+## If you don't have one - please use some value or add additional parmeters here and then use !Ref construction
+
 Resources:
 
   sgBeanstalk:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      VpcId: !ImportValue vpc4
+      VpcId: !ImportValue vpc4 ## change to some value or to !Ref if you don't have !ImportValue
       GroupDescription: Beanstalk main Security Group
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -231,7 +234,7 @@ Resources:
 
         - Namespace:  aws:elbv2:loadbalancer
           OptionName: SecurityGroups
-          Value: !ImportValue sgVpc4Web
+          Value: !ImportValue sgVpc4Web ## change to some value or to !Ref if you don't have !ImportValue
 
 ##        - Namespace:  aws:elbv2:listener:default
 ##          OptionName: ListenerEnabled
@@ -274,14 +277,14 @@ Resources:
           OptionName: SecurityGroups
           Value: !Join 
             - ','
-            - - !ImportValue sgVpc4SshInternal
-              - !ImportValue sgVpc4Https
+            - - !ImportValue sgVpc4SshInternal ## change to some value or to !Ref if you don't have !ImportValue
+              - !ImportValue sgVpc4Https ## change to some value or to !Ref if you don't have !ImportValue
               - !Ref sgBeanstalk
-              #- !ImportValue sgVpc4Web
+              #- !ImportValue sgVpc4Web ## change to some value or to !Ref if you don't have !ImportValue
 
         - Namespace: aws:autoscaling:launchconfiguration
           OptionName: EC2KeyName
-          Value: !ImportValue KeyPair
+          Value: !ImportValue KeyPair ## change to some value or to !Ref if you don't have !ImportValue
 
           ## SNS
         - Namespace: aws:elasticbeanstalk:sns:topics
@@ -295,21 +298,21 @@ Resources:
           ## VPC
         - Namespace: aws:ec2:vpc
           OptionName: VPCId
-          Value: !ImportValue vpc4
+          Value: !ImportValue vpc4 ## change to some value or to !Ref if you don't have !ImportValue
 
         - Namespace: aws:ec2:vpc
           OptionName: Subnets
           Value: !Join 
             - ','
-            - - !ImportValue subnetVpc4PrivateAppA
-              - !ImportValue subnetVpc4PrivateAppB
+            - - !ImportValue subnetVpc4PrivateAppA ## change to some value or to !Ref if you don't have !ImportValue
+              - !ImportValue subnetVpc4PrivateAppB ## change to some value or to !Ref if you don't have !ImportValue
 
         - Namespace: aws:ec2:vpc
           OptionName: ELBSubnets
           Value: !Join 
             - ','
-            - - !ImportValue subnetVpc4DmzA
-              - !ImportValue subnetVpc4DmzB
+            - - !ImportValue subnetVpc4DmzA ## change to some value or to !Ref if you don't have !ImportValue
+              - !ImportValue subnetVpc4DmzB ## change to some value or to !Ref if you don't have !ImportValue
 
           ## ASG
         - Namespace: aws:autoscaling:asg
@@ -331,7 +334,7 @@ Resources:
 
         - Namespace: aws:elasticbeanstalk:customoption
           OptionName: BeanLogGroup
-          Value: !ImportValue loggroupVpc4
+          Value: !ImportValue loggroupVpc4 ## change to some value or to !Ref if you don't have !ImportValue
 
         - Namespace: aws:elasticbeanstalk:hostmanager
           OptionName: LogPublicationControl
