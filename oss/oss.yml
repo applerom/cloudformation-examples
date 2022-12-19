@@ -1,0 +1,170 @@
+Description: OpenSearch Service cluster
+
+Parameters:
+
+  InstanceType:
+    Type: String # https://docs.aws.amazon.com/opensearch-service/latest/developerguide/supported-instance-types.html
+    Description: OpenSearch instance type
+    Default: t3.small.search # https://docs.aws.amazon.com/opensearch-service/latest/developerguide/sizing-domains.html#bp-instances
+
+  VolumeSize:
+    Type: Number # https://docs.aws.amazon.com/opensearch-service/latest/developerguide/limits.html
+    Description: Volume size of OpenSearch # https://docs.aws.amazon.com/opensearch-service/latest/developerguide/sizing-domains.html#bp-storage
+    Default: 10
+
+  VolumeType:
+    Type: String # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-opensearchservice-domain-ebsoptions.html#cfn-opensearchservice-domain-ebsoptions-volumetype
+    Description: Volume type of OpenSearch # care for "GP3 EBS volume is currently disabled in this region"
+    Default: gp2 # gp3 | gp2 | io1 | standard
+    AllowedValues: [ gp2, gp3, io1, standard ]
+
+  DomainName:
+    Type: String
+    Description: OpenSearch Domain Name
+    Default: oss-domain
+
+  AccessPolicy:
+    Type: String
+    Description: AccessPolicy Principal AWS
+    Default: '*'
+
+  EngineVersion:
+    Type: String # https://docs.aws.amazon.com/opensearch-service/latest/developerguide/what-is.html#choosing-version
+    Description: OpenSearch version
+    Default: 'OpenSearch_1.2' # Elasticsearch_7.10
+    # 1.2, 1.1, 1.0 - OpenSearch
+    # 7.10, 7.9, 7.8, 7.7, 7.4, 7.1, 6.8, 6.7, 6.5, 6.4, 6.3, 6.2, 6.0, 5.6, 5.5, 5.3, 5.1, 2.3, 1.5 - Elasticsearch
+
+  InVpc:
+    Type: String
+    Description: In Vpc - yes or no
+    Default: 'yes'
+    ## OpenSearch in VPC need service-linked role but CloudFormation cannot create it so run before:
+    # aws iam create-service-linked-role --aws-service-name opensearchservice.amazonaws.com
+
+  VpcId:
+    Type: String
+    Description: VPC ID
+    Default: ''
+
+  SubnetIdList:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet Id for OpenSearch
+
+  SgIdList:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: Security Group IDs for OpenSearch
+
+  KmsKeyId:
+    Type: String
+    Description: KMS ARN
+    Default: ''
+
+
+Conditions:
+  IsPublic:
+    !Equals [!Ref InVpc, 'no']
+  IsPrivate:
+    ##!Not [!Equals [!Ref SubnetIdList, '']]
+    !Equals [!Ref InVpc, 'yes']
+  NoKmsKeyId:
+    !Equals [!Ref KmsKeyId, '']
+
+
+Resources:
+
+  #sgOss:
+  #  Type: AWS::EC2::SecurityGroup
+  #  Properties:
+  #    VpcId: !Ref VpcId
+  #    GroupDescription: OpenSearch Security Group
+  #    SecurityGroupIngress:
+  #      - IpProtocol: tcp
+  #        FromPort:   443
+  #        ToPort:     443
+  #        CidrIp:     0.0.0.0/0
+  #        Description: HTTPS IPv4 for global trafic
+  #      - IpProtocol: tcp
+  #        FromPort:   443
+  #        ToPort:     443
+  #        CidrIp:     ::/
+  #        Description: HTTPS IPv6 for global trafic
+  #      #- IpProtocol: tcp
+  #      #  FromPort:   9200
+  #      #  ToPort:     9300
+  #      #  CidrIp:     0.0.0.0/0
+  #      #  Description: OpenSearch (default) for global trafic
+
+  ossDomainPublic:
+    Condition: IsPublic
+    Type: AWS::OpenSearchService::Domain
+    Properties: 
+      EngineVersion: !Ref EngineVersion
+      DomainName:    !Ref DomainName
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: !Ref VolumeSize
+        VolumeType: !Ref VolumeType
+      ClusterConfig:
+        InstanceCount: 1
+        InstanceType:  !Ref InstanceType
+
+      #VPCOptions:
+      #  SecurityGroupIds: 
+      #    - !Ref sgOss
+      #    ##- !ImportValue sgVpc4Web
+      #  SubnetIds: !Ref SubnetIdList
+      #  #SubnetIds: 
+      #  #  - !Select [0, !Ref SubnetIdList]
+
+      AccessPolicies: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Action: 'es:*'
+            Principal: 
+              AWS:
+                - !Ref AccessPolicy
+            Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${DomainName}/*'
+
+  ossDomain:
+    Condition: IsPrivate
+    Type: AWS::OpenSearchService::Domain
+    Properties: 
+      EngineVersion: !Ref EngineVersion
+      DomainName:    !Ref DomainName
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: !Ref VolumeSize
+        VolumeType: !Ref VolumeType
+      ClusterConfig:
+        InstanceCount: 1
+        InstanceType:  !Ref InstanceType
+      EncryptionAtRestOptions:
+        Enabled: !If [ NoKmsKeyId, false, true ]
+        KmsKeyId: !If [ NoKmsKeyId, !Ref 'AWS::NoValue', !Ref KmsKeyId ]
+
+      VPCOptions:
+        SecurityGroupIds: !Ref SgIdList
+          #- !Ref sgOss
+          ##- !ImportValue sgVpc4Web
+        SubnetIds: !Ref SubnetIdList
+          ##- !Select [0, !Ref SubnetIdList]
+          ##- !ImportValue subnetVpc4PrivateDbA
+
+      AccessPolicies: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Action: 'es:*'
+            Principal: 
+              AWS:
+                - !Ref AccessPolicy
+            Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${DomainName}/*'
+
+
+Outputs:
+
+  dns1:
+    Description: Endpoint for OpenSearch
+    Value: !If [ IsPrivate, !GetAtt [ossDomain, 'DomainEndpoint'], !GetAtt [ossDomainPublic, 'DomainEndpoint'] ]

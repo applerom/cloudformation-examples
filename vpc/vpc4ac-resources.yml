@@ -1,0 +1,239 @@
+Description: Create Vpc4 resources - security groups, RDS subnets etc.
+
+Parameters:
+
+  CidrBlockManagement:
+    Type: String
+    Description: CIDR block for Vpc4
+    Default: 10.0.0.0/8
+
+Resources:
+
+## Common security Groups
+
+  sgVpc4AllLocalTcpUdp:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue vpc4
+      GroupDescription: Allow all local TCP/UDP trafic
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   0
+          ToPort:     65535
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: All TCP local trafic
+        - IpProtocol: udp
+          FromPort:   0
+          ToPort:     65535
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: All UDP local trafic
+        - IpProtocol: tcp
+          FromPort:   0
+          ToPort:     65535
+          CidrIp:     !Ref CidrBlockManagement
+          Description: All TCP Management trafic
+        - IpProtocol: udp
+          FromPort:   0
+          ToPort:     65535
+          CidrIp:     !Ref CidrBlockManagement
+          Description: All UDP Management trafic
+      
+  sgVpc4SshInternal:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable SSH only in/out for Vpc4
+      VpcId: !ImportValue vpc4
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   22
+          ToPort:     22
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: SSH internal in
+        - IpProtocol: tcp
+          FromPort:   22
+          ToPort:     22
+          CidrIp:     !Ref CidrBlockManagement
+          Description: SSH Management in
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort:   22
+          ToPort:     22
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: SSH internal out
+        - IpProtocol: tcp
+          FromPort:   22
+          ToPort:     22
+          CidrIp:     !Ref CidrBlockManagement
+          Description: SSH Management out
+
+  sgVpc4Postgres:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS PostgreSQL
+      VpcId: !ImportValue vpc4
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   5432
+          ToPort:     5432
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: PostgreSQL
+        - IpProtocol: tcp
+          FromPort:   5432
+          ToPort:     5432
+          CidrIp:     !Ref CidrBlockManagement
+          Description: PostgreSQL from Management
+
+  sgVpc4Redis:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue vpc4
+      GroupDescription: Elasticache - Redis
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   6379
+          ToPort:     6379
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: Redis
+        - IpProtocol: tcp
+          FromPort:   6379
+          ToPort:     6379
+          CidrIp:     !Ref CidrBlockManagement
+          Description: Redis from Management
+
+  sgVpc4Mysql:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS MySQL
+      VpcId: !ImportValue vpc4
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   3306
+          ToPort:     3306
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: MySQL
+        - IpProtocol: tcp
+          FromPort:   3306
+          ToPort:     3306
+          CidrIp:     !Ref CidrBlockManagement
+          Description: MySQL
+
+  sgVpc4Web:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue vpc4
+      GroupDescription: HTTP/HTTPS external access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   80
+          ToPort:     80
+          CidrIp:     0.0.0.0/0
+          Description: HTTP
+        - IpProtocol: tcp
+          FromPort:   443
+          ToPort:     443
+          CidrIp:     0.0.0.0/0
+          Description: HTTPS
+
+  sgVpc4Https:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue vpc4
+      GroupDescription: HTTPS external access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   443
+          ToPort:     443
+          CidrIp:     0.0.0.0/0
+          Description: HTTPS
+
+  sgVpc4HttpsInt:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue vpc4
+      GroupDescription: HTTPS internal access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   443
+          ToPort:     443
+          CidrIp:     !ImportValue CidrBlockVpc4
+          Description: HTTPS internal access
+        - IpProtocol: tcp
+          FromPort:   443
+          ToPort:     443
+          CidrIp:     !Ref CidrBlockManagement
+          Description: HTTPS Management access
+
+  sgVpc4Dummy:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue vpc4
+      GroupDescription: Dummy (empty) SG
+
+## RDS subnet
+
+  dbsubnetgroupVpc4Rds:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS Subnet Group
+      SubnetIds:
+        - !ImportValue subnetVpc4PrivateDbA
+        - !ImportValue subnetVpc4PrivateDbB
+        - !ImportValue subnetVpc4PrivateDbC
+      
+
+Outputs:
+
+## Common security Groups
+
+  sgVpc4AllLocalTcpUdp:
+    Value: !Ref sgVpc4AllLocalTcpUdp
+    Export:
+      Name: sgVpc4AllLocalTcpUdp
+
+  sgVpc4SshInternal:
+    Value: !Ref sgVpc4SshInternal
+    Export:
+      Name: sgVpc4SshInternal
+
+  sgVpc4Mysql:
+    Value: !Ref sgVpc4Mysql
+    Export:
+      Name: sgVpc4Mysql
+
+  sgVpc4Postgres:
+    Value: !Ref sgVpc4Postgres
+    Export:
+      Name: sgVpc4Postgres
+
+  sgVpc4Redis:
+    Value: !Ref sgVpc4Redis
+    Export:
+      Name: sgVpc4Redis
+
+  sgVpc4Web:
+    Value: !Ref sgVpc4Web
+    Export:
+      Name: sgVpc4Web
+
+  sgVpc4Https:
+    Value: !Ref sgVpc4Https
+    Export:
+      Name: sgVpc4Https
+
+  sgVpc4HttpsInt:
+    Value: !Ref sgVpc4HttpsInt
+    Export:
+      Name: sgVpc4HttpsInt
+
+  sgVpc4Dummy:
+    Value: !Ref sgVpc4Dummy
+    Export:
+      Name: sgVpc4Dummy
+
+## RDS subnet
+
+  dbsubnetgroupVpc4Rds:
+    Value: !Ref dbsubnetgroupVpc4Rds
+    Export:
+      Name: dbsubnetgroupVpc4Rds
+      
