@@ -1,0 +1,362 @@
+Description: Beanstalk
+
+Parameters:
+
+  SourceBucket:
+    Type: String
+    Description: Source S3 bucket
+    Default: some-bucket
+
+  SourceFile:
+    Type: String
+    Description: Source path in S3 bucket
+    Default: some-path
+
+  AcmCertificateArn:
+    Type: String
+    Description: ACM Certificate Arn
+    Default: some-acm-certificate-arn
+
+  BeanstalkType:
+    Type: String
+    Description: Beanstalk SolutionStackName
+    Default: '64bit Amazon Linux 2018.03 v2.10.4 running Java 8'
+# https://docs.aws.amazon.com/elasticbeanstalk/latest/platforms/platforms-supported.html#platforms-supported.javase
+
+  InstanceType:
+    Type: String
+    Description: EC2 instance type
+    Default: t3.medium
+
+  AutoScalingMinSize:
+    Type: String
+    Description: AutoScaling MinSize
+    Default: 2
+
+  AutoScalingMaxSize:
+    Type: String
+    Description: AutoScaling MaxSize
+    Default: 4
+
+  LogPublicationControl:
+    Type: String
+    Description: LogPublicationControl
+    Default: true
+    AllowedValues: [ true, false ]
+
+  InstancePort:
+    Type: String
+    Description: Instance port
+    Default: 80
+
+  InstancePortAdmin:
+    Type: String
+    Description: Instance port admin
+    Default: 8080
+
+  InstanceProtocol:
+    Type: String
+    Description: Instance protocol
+    Default: HTTP # TCP
+
+  HealthCheckPath:
+    Type: String
+    Description: Healthcheck path
+    Default: some-endpoint
+
+  NotificationEmail:
+    Type: String
+    Description: Notification Email
+    Default: some-email
+
+Resources:
+
+  sgBeanstalk:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue vpc4
+      GroupDescription: Beanstalk main Security Group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort:   !Ref InstancePort
+          ToPort:     !Ref InstancePort
+          CidrIp:     10.0.0.0/8
+          Description: InstancePort
+        - IpProtocol: tcp
+          FromPort:   !Ref InstancePortAdmin
+          ToPort:     !Ref InstancePortAdmin
+          CidrIp:     10.0.0.0/8
+          Description: InstancePortAdmin
+
+  roleBeanstalk:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+
+  profileBeanstalk:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref roleBeanstalk
+
+  policyBeanstalk:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: roleBeanstalk
+      Roles:
+        - !Ref roleBeanstalk
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'cloudwatch:PutMetricData'
+              - 's3:Get*'
+              - 's3:List*'
+              - 's3:PutObject'
+            Resource:
+              - 'arn:aws:s3:::elasticbeanstalk-*'
+            Effect: Allow
+
+  policyCloudWatchStreaming:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CloudWatchStreamingPolicy
+      Roles:
+        - !Ref roleBeanstalk
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'logs:PutLogEvents'
+              - 'logs:CreateLogStream'
+            Resource: '*'
+
+  policyAwsLogsAgent:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AwsLogsAgentPolicy
+      Roles:
+        - !Ref roleBeanstalk
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:GetLogEvents'
+              - 'logs:PutLogEvents'
+              - 'logs:DescribeLogGroups'
+              - 'logs:DescribeLogStreams'
+              - 'logs:PutRetentionPolicy'
+            Resource: '*'
+
+  appBeanstalk:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      Description: AWS Elastic Beanstalk appBeanstalk Application
+
+  verBeanstalk:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref appBeanstalk
+      Description: AWS ElasticBeanstalk appBeanstalk Application Version
+      SourceBundle:
+        S3Bucket: !Ref SourceBucket
+        S3Key:    !Ref SourceFile
+
+  cfgBeanstalk:
+    Type: AWS::ElasticBeanstalk::ConfigurationTemplate
+    Properties:
+      ApplicationName: !Ref appBeanstalk
+      Description: AWS ElasticBeanstalk appBeanstalk Configuration Template
+      OptionSettings:
+
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: EnvironmentType
+          Value: LoadBalanced
+
+          ## ELB
+##        - Namespace: 'aws:elb:listener:443'
+##          OptionName: ListenerProtocol
+##          Value: HTTPS # TCP
+##
+##        - Namespace: 'aws:elb:listener:443'
+##          OptionName: SSLCertificateId
+##          Value: !Ref AcmCertificateArn
+##
+##        - Namespace: 'aws:elb:listener:443'
+##          OptionName: InstancePort
+##          Value: !Ref InstancePort
+##
+##        - Namespace: 'aws:elb:listener:443'
+##          OptionName: InstanceProtocol
+##          Value: !Ref InstanceProtocol
+##
+##        - Namespace: 'aws:elb:loadbalancer'
+##          OptionName: CrossZone
+##          Value: true
+##
+##        - Namespace:  aws:elb:policies:TLSHighPolicy
+##          OptionName: SSLReferencePolicy
+##          Value:      ELBSecurityPolicy-TLS-1-2-2017-01 # ELBSecurityPolicy-FS-1-2-Res-2019-08
+
+          ## ALB
+        - Namespace:  aws:elasticbeanstalk:environment
+          OptionName: LoadBalancerType
+          Value:      application
+
+        - Namespace:  aws:elbv2:listener:443
+          OptionName: Protocol
+          Value:      HTTPS
+
+        - Namespace:  aws:elbv2:listener:443
+          OptionName: SSLCertificateArns
+          Value: !Ref AcmCertificateArn
+
+        - Namespace:  aws:elbv2:listener:443
+          OptionName: SSLPolicy
+          Value:      ELBSecurityPolicy-FS-1-2-Res-2019-08
+
+        - Namespace:  aws:elbv2:listener:443
+          OptionName: DefaultProcess
+          Value:      default
+
+        - Namespace:  aws:elbv2:loadbalancer
+          OptionName: SecurityGroups
+          Value: !ImportValue sgVpc4Web
+
+##        - Namespace:  aws:elbv2:listener:default
+##          OptionName: ListenerEnabled
+##          Value:      false
+
+        - Namespace:  aws:elasticbeanstalk:environment:process:default
+          OptionName: Port
+          Value: !Ref InstancePort
+
+        - Namespace:  aws:elasticbeanstalk:environment:process:default
+          OptionName: Protocol
+          Value:      HTTP
+
+        - Namespace:  aws:elasticbeanstalk:environment:process:default
+          OptionName: StickinessEnabled
+          Value:      true
+
+        - Namespace:  aws:elasticbeanstalk:environment:process:default
+          OptionName: HealthCheckPath
+          Value: !Ref HealthCheckPath
+
+##        - Namespace:  aws:elasticbeanstalk:application
+##          OptionName: Application Healthcheck URL
+##          Value: !Ref HealthCheckPath
+
+          ## launchconfiguration
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: SSHSourceRestriction
+          Value: !Join [ ',',  [ tcp, '22', '22', '10.0.0.0/8' ] ] # !ImportValue CidrBlockManagement must be here
+
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: InstanceType
+          Value: !Ref InstanceType
+
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: IamInstanceProfile
+          Value: !Ref profileBeanstalk
+
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: SecurityGroups
+          Value: !Join 
+            - ','
+            - - !ImportValue sgVpc4SshInternal
+              - !ImportValue sgVpc4Https
+              - !Ref sgBeanstalk
+              #- !ImportValue sgVpc4Web
+
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: EC2KeyName
+          Value: !ImportValue KeyPair
+
+          ## SNS
+        - Namespace: aws:elasticbeanstalk:sns:topics
+          OptionName: Notification Endpoint
+          Value: !Ref NotificationEmail
+
+        - Namespace: aws:elasticbeanstalk:sns:topics
+          OptionName: Notification Protocol
+          Value: email
+
+          ## VPC
+        - Namespace: aws:ec2:vpc
+          OptionName: VPCId
+          Value: !ImportValue vpc4
+
+        - Namespace: aws:ec2:vpc
+          OptionName: Subnets
+          Value: !Join 
+            - ','
+            - - !ImportValue subnetVpc4PrivateAppA
+              - !ImportValue subnetVpc4PrivateAppB
+
+        - Namespace: aws:ec2:vpc
+          OptionName: ELBSubnets
+          Value: !Join 
+            - ','
+            - - !ImportValue subnetVpc4DmzA
+              - !ImportValue subnetVpc4DmzB
+
+          ## ASG
+        - Namespace: aws:autoscaling:asg
+          OptionName: MinSize
+          Value: !Ref AutoScalingMinSize
+
+        - Namespace: aws:autoscaling:asg
+          OptionName: MaxSize
+          Value: !Ref AutoScalingMaxSize
+
+          # CLOUDWATCH LOGS
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: StreamLogs
+          Value: true
+
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: DeleteOnTerminate
+          Value: true
+
+        - Namespace: aws:elasticbeanstalk:customoption
+          OptionName: BeanLogGroup
+          Value: !ImportValue loggroupVpc4
+
+        - Namespace: aws:elasticbeanstalk:hostmanager
+          OptionName: LogPublicationControl
+          Value: !Ref LogPublicationControl
+
+      SolutionStackName: !Ref BeanstalkType
+
+  envBeanstalk:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref appBeanstalk
+      Description: AWS ElasticBeanstalk appBeanstalk Environment
+      TemplateName: !Ref cfgBeanstalk
+      VersionLabel: !Ref verBeanstalk
+
+Outputs:
+
+  appBeanstalk:
+    Value: !Ref appBeanstalk
+
+  roleBeanstalk:
+    Value: !Ref roleBeanstalk
+
+  policyBeanstalk:
+    Value: !Ref policyBeanstalk
+
+  dns1:
+    Value: !GetAtt [envBeanstalk, EndpointURL]
